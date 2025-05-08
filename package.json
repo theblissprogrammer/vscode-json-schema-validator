@@ -1,6 +1,6 @@
 {
-  "name": "json-schema-validator",
-  "displayName": "JSON Schema Validator",
+  "name": "json-schema2020-validator",
+  "displayName": "JSON Schema 2020-12 Draft Validator",
   "description": "JSON Schema validator for Schema 2020-12 draft",
   "publisher": "AhmedSaad",
   "version": "0.0.1",

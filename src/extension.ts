@@ -75,6 +75,11 @@ export function activate(context: vscode.ExtensionContext) {
 		const schemaPath = vscode.workspace.getConfiguration('jsonSchemaValidator').get<string>('schemaPath')!;
 		const schemaFullPath = path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', schemaPath);
 
+		// **SKIP** validating the schema file itself
+		if (doc.uri.fsPath === schemaFullPath) {
+			return;
+		}
+
 		const schema = JSON.parse(fs.readFileSync(path.resolve(schemaFullPath), "utf8"));
 		const raw = doc.getText();
 		// strip comments & trailing commas into a JS object:
@@ -90,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const root = parseTree(raw);
 		if (!root) return;
 
-		
+
 		const ajv = new Ajv2020({
 			allErrors: true,
 			strictTypes: false,

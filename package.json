@@ -1,0 +1,59 @@
+{
+  "name": "stc-schema-validator",
+  "displayName": "stc-schema-validator",
+  "description": "JSON Schema validator for STC BFF",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "extension.validateJson",
+        "title": "Validate JSON Against Schema"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "jsonSchemaValidator.schemaPath": {
+          "type": "string",
+          "default": "/schemas/schema.json",
+          "description": "Path to the JSON Schema file"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/minimist": "^1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.99.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@sidvind/better-ajv-errors": "^4.0.0",
+    "ajv": "^8.17.1",
+    "better-ajv-errors": "^1.2.0",
+    "jsonc-parser": "^3.3.1",
+    "minimist": "^1.2.8"
+  }
+}

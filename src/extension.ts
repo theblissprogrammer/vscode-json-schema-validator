@@ -5,6 +5,7 @@ import * as path from 'path';
 import fs from "fs";
 
 import { parse, parseTree, findNodeAtLocation } from 'jsonc-parser';
+import { JsonQuickFixProvider } from './quickfix';
 
 let outputChannel: vscode.OutputChannel;
 let diagnostics: vscode.DiagnosticCollection;
@@ -16,6 +17,9 @@ const typingTimers = new Map<string, NodeJS.Timeout>();
 const DEBOUNCE_MS = 500;
 
 export function activate(context: vscode.ExtensionContext) {
+	const schemaPath = vscode.workspace.getConfiguration('jsonSchemaValidator').get<string>('schemaPath')!;
+	const schemaFullPath = path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', schemaPath);
+
 	diagnostics = vscode.languages.createDiagnosticCollection('json-schema');
 	context.subscriptions.push(diagnostics);
 	// create once
@@ -35,9 +39,6 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!projectRoot) {
 			return vscode.window.showErrorMessage('Open a workspace folder first.');
 		}
-
-		const schemaPath = vscode.workspace.getConfiguration('jsonSchemaValidator').get<string>('schemaPath')!;
-		const schemaFullPath = path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', schemaPath);
 
 		// **SKIP** validating the schema file itself
 		if (doc.uri.fsPath === schemaFullPath) {
@@ -149,110 +150,12 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.languages.registerCodeActionsProvider(
-			['json', 'jsonc'],
-			new JsonQuickFixProvider(),
-			{ providedCodeActionKinds: JsonQuickFixProvider.providedCodeActionKinds }
+		  ['json','jsonc'],
+		  new JsonQuickFixProvider(schemaFullPath),
+		  { providedCodeActionKinds: JsonQuickFixProvider.providedCodeActionKinds }
 		)
-	);
+	  );
 }
-
-class JsonQuickFixProvider implements vscode.CodeActionProvider {
-	// we only provide QuickFixes
-	public static readonly providedCodeActionKinds = [
-		vscode.CodeActionKind.QuickFix
-	];
-
-	public provideCodeActions(
-		document: vscode.TextDocument,
-		range: vscode.Range,
-		context: vscode.CodeActionContext,
-		token: vscode.CancellationToken
-	): vscode.CodeAction[] {
-		const actions: vscode.CodeAction[] = [];
-
-		for (const diag of context.diagnostics) {
-			const msg = diag.message;
-
-			// A) Fix boolean/null type mismatches
-			if (msg.includes('must be boolean,null')) {
-				const fix = this.createBooleanFix(document, diag);
-				actions.push(fix);
-			}
-
-			// B) Fix missing required property
-			const missing = msg.match(/must have required property '(.+)'/);
-			if (missing) {
-				const propName = missing[1];
-				const fix = this.createInsertPropertyFix(document, diag, propName);
-				actions.push(fix);
-			}
-		}
-
-		return actions;
-	}
-
-	// A) Replace the existing value with `false` (or `true`) to satisfy boolean
-	private createBooleanFix(
-		doc: vscode.TextDocument,
-		diag: vscode.Diagnostic
-	  ): vscode.CodeAction {
-		const fix = new vscode.CodeAction(
-		  'Convert to actual boolean',
-		  vscode.CodeActionKind.QuickFix
-		);
-		fix.diagnostics = [diag];
-		fix.isPreferred = true;
-	  
-		// 1) Grab the existing text (including quotes, if it was a string)
-		const oldText = doc.getText(diag.range).trim();      // e.g. `"true"` or `"false"`
-	  
-		// 2) Decide the new boolean literal
-		//    If it was the *string* `"true"` (or case variants), use true; otherwise false
-		const lower = oldText.toLowerCase();
-		const newVal =
-		  lower === `"true"` || lower === 'true'
-			? 'true'
-			: 'false';
-	  
-		// 3) Create an edit that replaces exactly that node range
-		const edit = new vscode.WorkspaceEdit();
-		edit.replace(doc.uri, diag.range, newVal);
-	  
-		fix.edit = edit;
-		return fix;
-	  }
-
-	// B) Insert a missing property with a default value
-	private createInsertPropertyFix(
-		doc: vscode.TextDocument,
-		diag: vscode.Diagnostic,
-		propName: string
-	): vscode.CodeAction {
-		const fix = new vscode.CodeAction(
-			`Add missing property "${propName}"`,
-			vscode.CodeActionKind.QuickFix
-		);
-		fix.diagnostics = [diag];
-		fix.isPreferred = true;
-
-		const edit = new vscode.WorkspaceEdit();
-
-		// Strategy: find the object node containing this diag.range
-		// and insert `"propName": <default>,` on the next line
-		const lineNum = diag.range.start.line;
-		const indent = doc.lineAt(lineNum).firstNonWhitespaceCharacterIndex;
-		const insertPos = new vscode.Position(lineNum + 1, indent);
-		const defaultValue = 'null'; // or choose based on schema
-
-		const snippet =
-			`\n${' '.repeat(indent)}"${propName}": ${defaultValue},`;
-
-		edit.insert(doc.uri, insertPos, snippet);
-		fix.edit = edit;
-		return fix;
-	}
-}
-
 
 export function diagnosticsFromBetterErrors(
 	schema: unknown,

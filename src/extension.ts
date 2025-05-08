@@ -5,7 +5,7 @@ import betterAjvErrors from '@sidvind/better-ajv-errors';
 import * as path from 'path';
 import fs from "fs";
 
-import { parseTree, findNodeAtLocation } from 'jsonc-parser';
+import { parse, parseTree, findNodeAtLocation } from 'jsonc-parser';
 
 let outputChannel: vscode.OutputChannel;
 let diagnostics: vscode.DiagnosticCollection;
@@ -57,7 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(outputChannel);
 
 	const runValidation = (doc: vscode.TextDocument) => {
-		if (doc.languageId !== 'json') return;
+		if (doc.languageId !== 'json' && doc.languageId !== 'jsonc') return;
 
 		// make sure it’s saved
 		if (doc.isDirty) {
@@ -77,19 +77,20 @@ export function activate(context: vscode.ExtensionContext) {
 
 		const schema = JSON.parse(fs.readFileSync(path.resolve(schemaFullPath), "utf8"));
 		const raw = doc.getText();
-		const root = parseTree(raw);
-		if (!root) {
-			// invalid JSON syntax—could create a diagnostic here if you like
-			return;
-		}
-		// parse for Ajv
+		// strip comments & trailing commas into a JS object:
 		let data: any;
 		try {
-			data = JSON.parse(raw);
+			data = parse(raw, undefined, { allowTrailingComma: true });
 		} catch {
-			// syntax error already handled above
+			// You could add a diagnostic here for a syntax error
 			return;
 		}
+
+		// Build your AST for pointer‐based diagnostics:
+		const root = parseTree(raw);
+		if (!root) return;
+
+		
 		const ajv = new Ajv2020({
 			allErrors: true,
 			strictTypes: false,
@@ -105,6 +106,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const valid = validate(data);
 
 		if (valid) {
+			outputChannel.appendLine(`✅ JSON is valid!`);
 			vscode.window.showInformationMessage('✅ JSON is valid!');
 			process.exit(0);
 		} else {

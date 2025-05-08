@@ -1,11 +1,21 @@
-.vscode/**
-.vscode-test/**
-src/**
-.gitignore
-.yarnrc
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/eslint.config.mjs
-**/*.map
-**/*.ts
-**/.vscode-test.*
+# source TypeScript, tests, docs
+/src
+/tests
+/*.ts$
+/*.md$
+/webpack.config.js
+/tsconfig.json
+
+# git and editor configs
+.git/
+.vscode/
+
+# node_modules you don’t need at runtime
+node_modules/
+!node_modules/ajv/**   # keep runtime deps if you need them
+!node_modules/minimist/**
+!node_modules/@sidvind/**
+
+# dev-only files
+*.log
+.DS_Store

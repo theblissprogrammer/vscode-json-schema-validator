@@ -150,11 +150,42 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.languages.registerCodeActionsProvider(
-		  ['json','jsonc'],
-		  new JsonQuickFixProvider(schemaFullPath),
-		  { providedCodeActionKinds: JsonQuickFixProvider.providedCodeActionKinds }
+			['json', 'jsonc'],
+			new JsonQuickFixProvider(schemaFullPath),
+			{ providedCodeActionKinds: JsonQuickFixProvider.providedCodeActionKinds }
 		)
-	  );
+	);
+}
+
+/**
+ * Retrieve the literal value of a `const` keyword by following AJV's schemaPath.
+ *
+ * @param rootSchema  Your parsed JSON Schema object (the one you compiled with Ajv).
+ * @param schemaPath  The AJV ErrorObject.schemaPath, e.g. "#/$defs/ListItem/properties/dlsName/const"
+ * @returns            The value of that `const`, or `undefined` if not found.
+ */
+function getConstFromSchema(rootSchema: any, schemaPath: string): any | undefined {
+	// strip the leading "#/"
+	if (!schemaPath.startsWith('#/')) return undefined;
+	const parts = schemaPath.slice(2).split('/').map(p =>
+		// unescape JSON-Pointer tokens
+		p.replace(/~1/g, '/').replace(/~0/g, '~')
+	);
+
+	let node: any = rootSchema;
+	for (const part of parts) {
+		if (node === undefined) return undefined;
+		// if we’re in an array (e.g. oneOf), convert the part to a number
+		if (Array.isArray(node)) {
+			const idx = parseInt(part, 10);
+			if (isNaN(idx) || idx < 0 || idx >= node.length) return undefined;
+			node = node[idx];
+		} else {
+			node = node[part];
+		}
+	}
+	// `node` should now be the literal value (for {"const":"ListItem"} → "ListItem")
+	return node;
 }
 
 export function diagnosticsFromBetterErrors(
@@ -178,14 +209,24 @@ export function diagnosticsFromBetterErrors(
 		(groups[key] ||= []).push(err);
 	}
 	const rootErrors: ErrorObject[] = [];
+
 	for (const errs of Object.values(groups)) {
 		const maxLen = Math.max(...errs.map(e => e.instancePath.split('/').length));
 		rootErrors.push(...errs.filter(e => e.instancePath.split('/').length === maxLen));
 	}
 
+	const seen = new Set<string>();
+	const uniqueErrors: ErrorObject[] = [];
+	for (const err of rootErrors) {
+		if (!seen.has(err.instancePath)) {
+			seen.add(err.instancePath);
+			uniqueErrors.push(err);
+		}
+	}
+
 	const diags: vscode.Diagnostic[] = [];
 
-	for (const err of rootErrors) {
+	for (const err of uniqueErrors) {
 		// --- find the precise AST node for this error ---
 		const rawSegs = err.instancePath
 			.split('/').slice(1)
@@ -226,9 +267,37 @@ export function diagnosticsFromBetterErrors(
 
 		const header = compName ? `[${compName}]` : '[Unknown]';
 		const msg = `${header} ${err.instancePath} → ${err.message}`;
+		outputChannel.appendLine(`🔍 ${msg}`);
 
-		outputChannel.appendLine(`❌ ${msg}`);
-		diags.push(new vscode.Diagnostic(range, msg, vscode.DiagnosticSeverity.Error));
+		const diag = new vscode.Diagnostic(range, msg, vscode.DiagnosticSeverity.Error);
+
+		if (err.keyword === 'additionalProperties') {
+			const extra = (err.params as any).additionalProperty as string;
+			diag.code = extra;
+		}
+
+		// 2) capture const as before
+		if (err.keyword === 'const') {
+			const allowed = (err.params as any).allowedValue
+				?? getConstFromSchema(schema, err.schemaPath);
+			if (allowed !== undefined) {
+				// store literal or JSON-stringified for objects/numbers
+				diag.code = typeof allowed === 'string' || typeof allowed === 'number'
+					? allowed
+					: JSON.stringify(allowed);
+			}
+		}
+
+		// 3) **new**: capture enum values
+		if (err.keyword === 'enum') {
+			const allowedArr = (err.params as any).allowedValues as unknown[];
+			if (Array.isArray(allowedArr)) {
+				// diag.code only accepts string or number, so stringify
+				diag.code = JSON.stringify(allowedArr);
+			}
+		}
+
+		diags.push(diag);
 	}
 
 	return diags;

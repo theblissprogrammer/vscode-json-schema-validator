@@ -3,7 +3,7 @@
   "displayName": "JSON Schema 2020-12 Draft Validator",
   "description": "JSON Schema validator for Schema 2020-12 draft",
   "publisher": "AhmedSaad",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/theblissprogrammer/vscode-json-schema-validator.git",

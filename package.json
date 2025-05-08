@@ -35,7 +35,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "build": "tsc"
   },
   "devDependencies": {
     "@types/minimist": "^1",

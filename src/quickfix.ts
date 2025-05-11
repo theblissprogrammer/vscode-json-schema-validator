@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import Ajv2020, { ErrorObject } from "ajv/dist/2020";
-import betterAjvErrors from '@sidvind/better-ajv-errors';
 import { parseTree, findNodeAtLocation, Node } from 'jsonc-parser';
 import * as fs from 'fs';
 
@@ -30,7 +28,7 @@ export class JsonQuickFixProvider implements vscode.CodeActionProvider {
             }
 
             // 2) number conversion
-            if (msg.includes('must be number')) {
+            if (msg.includes('must be number') || msg.includes('must be integer')) {
                 actions.push(this.createNumberFix(document, diag));
             }
 
@@ -135,21 +133,6 @@ export class JsonQuickFixProvider implements vscode.CodeActionProvider {
         const content = raw.replace(/^['"]|['"]$/g, '');
         const lit = JSON.stringify(content);
         const title = `Convert to string ${lit}`;
-        const fix = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
-        fix.diagnostics = [diag];
-        fix.edit = new vscode.WorkspaceEdit();
-        fix.edit.replace(doc.uri, diag.range, lit);
-        return fix;
-    }
-
-    // 4) Const fix, uses Ajv params.allowedValue
-    private createConstFix(
-        doc: vscode.TextDocument,
-        diag: vscode.Diagnostic,
-        allowedValue: any
-    ): vscode.CodeAction {
-        const lit = JSON.stringify(allowedValue);
-        const title = `Set to constant ${lit}`;
         const fix = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
         fix.diagnostics = [diag];
         fix.edit = new vscode.WorkspaceEdit();

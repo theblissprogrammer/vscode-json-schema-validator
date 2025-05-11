@@ -27,6 +27,10 @@
       {
         "command": "extension.validateJson",
         "title": "Validate JSON Against Schema"
+      },
+      {
+        "command": "extension.openJsonBuilder",
+        "title": "Create JSON from Schema"
       }
     ],
     "configuration": {
@@ -50,6 +54,7 @@
     "build": "tsc"
   },
   "devDependencies": {
+    "@types/json-schema": "^7.0.15",
     "@types/minimist": "^1",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
@@ -62,6 +67,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "@apidevtools/json-schema-ref-parser": "^12.0.1",
     "@sidvind/better-ajv-errors": "^4.0.0",
     "ajv": "^8.17.1",
     "better-ajv-errors": "^1.2.0",

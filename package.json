@@ -31,6 +31,14 @@
       {
         "command": "extension.openJsonBuilder",
         "title": "Create JSON from Schema"
+      },
+      {
+        "command": "extension.refreshSchemaCache",
+        "title": "Refresh JSON Schema Cache"
+      },
+      {
+        "command": "extension.openSettings",
+        "title": "JSON Schema Validator: Configure Settings"
       }
     ],
     "configuration": {
@@ -39,7 +47,17 @@
         "jsonSchemaValidator.schemaPath": {
           "type": "string",
           "default": "/schemas/schema.json",
-          "description": "Path to the JSON Schema file"
+          "description": "Path to the JSON Schema file (file path or HTTP/HTTPS URL)"
+        },
+        "jsonSchemaValidator.schemaUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL to fetch the JSON Schema from (if set, this takes precedence over schemaPath)"
+        },
+        "jsonSchemaValidator.schemaCacheDuration": {
+          "type": "number",
+          "default": 300,
+          "description": "Duration in seconds to cache the schema fetched from URL (default: 300 seconds / 5 minutes)"
         }
       }
     }
@@ -51,7 +69,9 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "build": "tsc"
+    "build": "tsc",
+    "package": "vsce package",
+    "install-extension": "code --install-extension json-schema2020-validator-0.0.2.vsix"
   },
   "devDependencies": {
     "@types/json-schema": "^7.0.15",
@@ -63,6 +83,7 @@
     "@typescript-eslint/parser": "^8.31.1",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2",
     "eslint": "^9.25.1",
     "typescript": "^5.8.3"
   },

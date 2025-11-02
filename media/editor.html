@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>JSON Builder</title>
+    <link href="jsoneditor.min.css" rel="stylesheet" />
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+
+        #editor {
+            height: calc(100% - 40px);
+        }
+
+        button {
+            width: 100%;
+            height: 40px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="editor"></div>
+    <button id="insert">Insert JSON</button>
+
+    <script src="jsoneditor.min.js"></script>
+    <script>
+        //const vscode = acquireVsCodeApi();
+
+        // receive the schema from the extension
+        window.addEventListener('message', e => {
+            const { schema, initial } = e.data;
+            const container = document.getElementById('editor');
+            // create the editor
+            const editor = new JSONEditor(container, {
+                mode: 'tree',
+                modes: ['tree', 'code'],       // allow code view toggle
+                schema: schema,               // your JSON-Schema
+                startval: initial || {},      // optional initial data
+                enableArrayReorder: true,
+                onError: console.error
+            });
+
+            document.getElementById('insert').onclick = () => {
+                let data;
+                try {
+                    data = editor.get();
+                } catch (err) {
+                    return alert('Invalid JSON: ' + err);
+                }
+                //vscode.postMessage({ command: 'insert', data });
+            };
+        });
+    </script>
+</body>
+
+</html>

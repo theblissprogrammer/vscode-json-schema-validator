@@ -7,6 +7,7 @@ import * as $RefParser from '@apidevtools/json-schema-ref-parser';
 import { JsonQuickFixProvider } from './quickfix';
 import { runValidation } from './validation';
 import { buildFromSchema } from './builder';
+import { getSchemaSource, getCacheDuration, loadSchema, clearSchemaCache } from './schemaLoader';
 
 let outputChannel: vscode.OutputChannel;
 let diagnostics: vscode.DiagnosticCollection;
@@ -18,8 +19,8 @@ const typingTimers = new Map<string, NodeJS.Timeout>();
 const DEBOUNCE_MS = 500;
 
 export function activate(context: vscode.ExtensionContext) {
-	const schemaPath = vscode.workspace.getConfiguration('jsonSchemaValidator').get<string>('schemaPath')!;
-	const schemaFullPath = path.join(vscode.workspace.workspaceFolders?.[0].uri.fsPath || '', schemaPath);
+	const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+	const schemaSource = getSchemaSource(workspaceFolder);
 
 	diagnostics = vscode.languages.createDiagnosticCollection('json-schema');
 	context.subscriptions.push(diagnostics);
@@ -33,9 +34,17 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// 1) Run when user explicitly invokes the command
 	context.subscriptions.push(
-		vscode.commands.registerCommand('extension.validateJson', () => {
+		vscode.commands.registerCommand('extension.validateJson', async () => {
 			const doc = vscode.window.activeTextEditor?.document;
-			if (doc) runValidation(doc, true, schemaFullPath, diagnostics, statusBar, outputChannel);
+			if (doc) {
+				try {
+					await runValidation(doc, true, diagnostics, statusBar, outputChannel);
+				} catch (error) {
+					const errMsg = error instanceof Error ? error.message : String(error);
+					outputChannel.appendLine(`❌ Validation error: ${errMsg}`);
+					vscode.window.showErrorMessage(`Validation failed: ${errMsg}`);
+				}
+			}
 		})
 	);
 
@@ -43,12 +52,21 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.workspace.onDidChangeTextDocument(e => {
 			const doc = e.document;
-			if (!['json', 'jsonc'].includes(doc.languageId)) return;
+			const isMustacheFile = doc.uri.fsPath.endsWith('.json.mustache');
+			if (!['json', 'jsonc'].includes(doc.languageId) && !isMustacheFile) {
+				return;
+			}
 
 			const key = doc.uri.toString();
 			clearTimeout(typingTimers.get(key)!);
-			const handle = setTimeout(() => {
-				runValidation(doc, false, schemaFullPath, diagnostics, statusBar, outputChannel);
+			const handle = setTimeout(async () => {
+				try {
+					await runValidation(doc, false, diagnostics, statusBar, outputChannel);
+				} catch (error) {
+					const errMsg = error instanceof Error ? error.message : String(error);
+					outputChannel.appendLine(`❌ Validation error: ${errMsg}`);
+					console.error('Validation error:', error);
+				}
 				typingTimers.delete(key);
 			}, DEBOUNCE_MS);
 			typingTimers.set(key, handle);
@@ -58,18 +76,38 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.languages.registerCodeActionsProvider(
 			['json', 'jsonc'],
-			new JsonQuickFixProvider(schemaFullPath),
+			new JsonQuickFixProvider(),
 			{ providedCodeActionKinds: JsonQuickFixProvider.providedCodeActionKinds }
 		)
+	);
+
+	// Command to manually refresh schema cache
+	context.subscriptions.push(
+		vscode.commands.registerCommand('extension.refreshSchemaCache', () => {
+			clearSchemaCache();
+			outputChannel.appendLine('🔄 Schema cache cleared');
+			vscode.window.showInformationMessage('Schema cache refreshed');
+		})
+	);
+
+	// Command to open settings UI
+	context.subscriptions.push(
+		vscode.commands.registerCommand('extension.openSettings', () => {
+			openSettingsPanel(context);
+		})
 	);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('extension.openJsonBuilder', async () => {
 			let schema: JSONSchema7;
 			try {
-				schema = JSON.parse(fs.readFileSync(path.resolve(schemaFullPath), "utf8"));
+				const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+				const schemaSource = getSchemaSource(workspaceFolder);
+				const cacheDuration = getCacheDuration();
+				schema = await loadSchema(schemaSource, cacheDuration, outputChannel);
 			} catch (e) {
-				return vscode.window.showErrorMessage('Could not load schema.json');
+				const errMsg = e instanceof Error ? e.message : String(e);
+				return vscode.window.showErrorMessage(`Could not load schema: ${errMsg}`);
 			}
 
 			// this returns a Promise<JSONSchema> with all $ref inlined
@@ -80,7 +118,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 			// 3) insert the JSON into the active editor
 			const editor = vscode.window.activeTextEditor;
-			if (!editor) return;
+			if (!editor) {
+				return;
+			}
 			const json = JSON.stringify(result, null, 2);
 			editor.insertSnippet(new vscode.SnippetString(json), editor.selection.active);
 		})
@@ -94,7 +134,17 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			// 1) load & deref your schema exactly as before...
-			const rawSchema = JSON.parse(fs.readFileSync(path.resolve(schemaFullPath), "utf8")) as JSONSchema7;
+			let rawSchema: JSONSchema7;
+			try {
+				const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+				const schemaSource = getSchemaSource(workspaceFolder);
+				const cacheDuration = getCacheDuration();
+				rawSchema = await loadSchema(schemaSource, cacheDuration, outputChannel);
+			} catch (e) {
+				const errMsg = e instanceof Error ? e.message : String(e);
+				return vscode.window.showErrorMessage(`Could not load schema: ${errMsg}`);
+			}
+			
 			const rootSchema = (rawSchema.$ref && rawSchema.$defs)
 				? (rawSchema.$defs![rawSchema.$ref.split('/').pop()!] as JSONSchema7)
 				: rawSchema;
@@ -186,4 +236,97 @@ export function deactivate() {
 	outputChannel.dispose();
 	diagnostics.clear();
 	statusBar.dispose();
+}
+
+/**
+ * Open the settings webview panel
+ */
+function openSettingsPanel(context: vscode.ExtensionContext) {
+	const panel = vscode.window.createWebviewPanel(
+		'jsonSchemaSettings',
+		'JSON Schema Validator Settings',
+		vscode.ViewColumn.One,
+		{
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))]
+		}
+	);
+
+	// Read the HTML file
+	const htmlPath = path.join(context.extensionPath, 'media', 'settings.html');
+	let html = fs.readFileSync(htmlPath, 'utf8');
+
+	// Set up CSP
+	const csp = `
+		default-src 'none';
+		style-src ${panel.webview.cspSource} 'unsafe-inline';
+		script-src ${panel.webview.cspSource} 'unsafe-inline';
+	`.replace(/\s+/g, ' ');
+	
+	html = html.replace(
+		`<meta http-equiv="Content-Security-Policy" content="">`,
+		`<meta http-equiv="Content-Security-Policy" content="${csp}">`
+	);
+
+	panel.webview.html = html;
+
+	// Handle messages from the webview
+	panel.webview.onDidReceiveMessage(
+		async message => {
+			switch (message.command) {
+				case 'ready':
+					// Send current settings to the webview
+					const config = vscode.workspace.getConfiguration('jsonSchemaValidator');
+					panel.webview.postMessage({
+						type: 'loadSettings',
+						settings: {
+							schemaPath: config.get('schemaPath', '/schemas/schema.json'),
+							schemaUrl: config.get('schemaUrl', ''),
+							schemaCacheDuration: config.get('schemaCacheDuration', 300)
+						}
+					});
+					break;
+
+				case 'saveSettings':
+					const { scope, schemaPath, schemaUrl, schemaCacheDuration } = message.settings;
+					const configTarget = scope === 'global' 
+						? vscode.ConfigurationTarget.Global 
+						: vscode.ConfigurationTarget.Workspace;
+
+					try {
+						const config = vscode.workspace.getConfiguration('jsonSchemaValidator');
+						
+						// Save all settings
+						await config.update('schemaPath', schemaPath, configTarget);
+						await config.update('schemaUrl', schemaUrl, configTarget);
+						await config.update('schemaCacheDuration', schemaCacheDuration, configTarget);
+
+						// Clear cache when settings change
+						clearSchemaCache();
+
+						vscode.window.showInformationMessage(
+							`✅ Settings saved successfully ${scope === 'global' ? '(Global)' : '(Workspace)'}`
+						);
+						
+						outputChannel.appendLine('⚙️  Settings updated:');
+						outputChannel.appendLine(`   Schema Path: ${schemaPath}`);
+						outputChannel.appendLine(`   Schema URL: ${schemaUrl || '(not set)'}`);
+						outputChannel.appendLine(`   Cache Duration: ${schemaCacheDuration}s`);
+						outputChannel.appendLine(`   Scope: ${scope}`);
+
+						panel.dispose();
+					} catch (error) {
+						const errMsg = error instanceof Error ? error.message : String(error);
+						vscode.window.showErrorMessage(`Failed to save settings: ${errMsg}`);
+					}
+					break;
+
+				case 'cancel':
+					panel.dispose();
+					break;
+			}
+		},
+		undefined,
+		context.subscriptions
+	);
 }

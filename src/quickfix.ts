@@ -1,23 +1,38 @@
 import * as vscode from 'vscode';
 import { parseTree, findNodeAtLocation, Node } from 'jsonc-parser';
 import * as fs from 'fs';
+import { getSchemaSource, getCacheDuration, loadSchema } from './schemaLoader';
 
 export class JsonQuickFixProvider implements vscode.CodeActionProvider {
     public static readonly providedCodeActionKinds = [
         vscode.CodeActionKind.QuickFix
     ];
 
-    constructor(private schemaPath: string) { }
+    // Cache schema per workspace
+    private schemaCache: Map<string, { schema: any, timestamp: number }> = new Map();
+    
+    constructor() { }
 
-    public provideCodeActions(
+    public async provideCodeActions(
         document: vscode.TextDocument,
         _range: vscode.Range,
         context: vscode.CodeActionContext
-    ): vscode.CodeAction[] {
+    ): Promise<vscode.CodeAction[]> {
         const actions: vscode.CodeAction[] = [];
 
-        // load schema once
-        const schema = JSON.parse(fs.readFileSync(this.schemaPath, 'utf8'));
+        // load schema
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        const schemaSource = getSchemaSource(workspaceFolder);
+        
+        let schema: any;
+        try {
+            const cacheDuration = getCacheDuration();
+            schema = await loadSchema(schemaSource, cacheDuration);
+        } catch (error) {
+            // If schema loading fails, return empty actions
+            console.error('Failed to load schema for quickfix:', error);
+            return actions;
+        }
 
         for (const diag of context.diagnostics) {
             const msg = diag.message;
